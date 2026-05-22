@@ -21,6 +21,7 @@ class OscForegroundService : Service() {
         const val EXTRA_CYCLING_MESSAGES = "cycling_messages"
         const val EXTRA_CYCLE_INTERVAL = "cycle_interval"
         var isRunning = false
+        var randomCycling = false
 
         fun formatTemplate(template: String, nowPlaying: NowPlaying, currentCycling: String): String {
             val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
@@ -36,11 +37,12 @@ class OscForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
 
-    @Volatile private var mainTemplate = "🎵 {song}\nby {artist}\n{cycling}\n{time}"
+    @Volatile private var mainTemplate = "🎵 {song} by {artist}\n{cycling}\n{time}"
     @Volatile private var cyclingMessages = listOf<String>()
     @Volatile private var cycleIntervalSeconds = 5
     private var currentCycleIndex = 0
     private var cycleTickCounter = 0
+    private val random = Random()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -87,8 +89,18 @@ class OscForegroundService : Service() {
                 cycleTickCounter++
                 if (cycleTickCounter >= cycleIntervalSeconds) {
                     cycleTickCounter = 0
-                    if (cyclingMessages.isNotEmpty())
-                        currentCycleIndex = (currentCycleIndex + 1) % cyclingMessages.size
+                    if (cyclingMessages.isNotEmpty()) {
+                        currentCycleIndex = if (randomCycling) {
+                            // Pick random index different from current if possible
+                            if (cyclingMessages.size > 1) {
+                                var next: Int
+                                do { next = random.nextInt(cyclingMessages.size) } while (next == currentCycleIndex)
+                                next
+                            } else 0
+                        } else {
+                            (currentCycleIndex + 1) % cyclingMessages.size
+                        }
+                    }
                 }
 
                 val currentCycling = if (cyclingMessages.isNotEmpty()) cyclingMessages[currentCycleIndex] else ""

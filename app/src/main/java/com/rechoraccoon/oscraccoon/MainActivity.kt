@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -185,7 +186,7 @@ fun OSCRaccoonApp() {
 @Composable
 fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Unit, onStartStop: () -> Unit, onClearChatbox: () -> Unit) {
     val context = LocalContext.current
-    // App icon - will use osc_raccoon_icon.png once provided, falls back to recho_icon.png
+    var showIconOverlay by remember { mutableStateOf(false) }
     val icon: ImageBitmap? = remember {
         try { BitmapFactory.decodeStream(context.assets.open("osc_raccoon_icon.png"))?.asImageBitmap() }
         catch (e: Exception) {
@@ -193,6 +194,26 @@ fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Un
             catch (e2: Exception) { null }
         }
     }
+
+    // Fullscreen icon overlay
+    if (showIconOverlay && icon != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .clickable { showIconOverlay = false }
+                .zIndex(99f),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                bitmap = icon,
+                contentDescription = "OSC Raccoon full",
+                modifier = Modifier.fillMaxHeight(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+            )
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth().background(BrownMid.copy(alpha = 0.85f)).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -202,7 +223,7 @@ fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Un
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (icon != null) {
                 Image(bitmap = icon, contentDescription = "OSC Raccoon",
-                    modifier = Modifier.size(36.dp).border(1.dp, GreenPrimary, RoundedCornerShape(18.dp)))
+                    modifier = Modifier.size(36.dp).clickable { showIconOverlay = true })
             }
             Column {
                 Text("OSCRaccoon by Recho Raccoon", color = GreenPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
@@ -284,11 +305,55 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
 @Composable
 fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval: Int, onMessagesChange: (List<String>) -> Unit, onIntervalChange: (Int) -> Unit) {
     var newMessage by remember { mutableStateOf("") }
-    // Drag state
     var dragFromIndex by remember { mutableStateOf(-1) }
     var dragToIndex by remember { mutableStateOf(-1) }
+    var isRandom by remember { mutableStateOf(false) }
 
-    PanelCard(modifier = modifier, title = "Cycling Messages {cycling}") {
+    // Expose random mode to OscForegroundService via a simple companion flag
+    LaunchedEffect(isRandom) { OscForegroundService.randomCycling = isRandom }
+
+    val itemHeightPx = remember { mutableStateOf(80f) }
+
+    // Panel title row with Order/Random toggles on the right
+    Column(modifier = modifier.background(BrownMid.copy(alpha = 0.7f), RoundedCornerShape(10.dp)).border(1.dp, GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp)).padding(12.dp)) {
+        // Title row
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Cycling Messages {cycling}", color = GreenPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            // Order / Random toggle buttons side by side
+            Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+                // Order button (left)
+                Box(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .background(
+                            if (!isRandom) GreenPrimary else Color.Transparent,
+                            RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp)
+                        )
+                        .border(1.dp, if (!isRandom) GreenPrimary else GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp))
+                        .clickable { isRandom = false }
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("In Order", color = if (!isRandom) BrownDark else GreenPrimary.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+                // Random button (right)
+                Box(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .background(
+                            if (isRandom) GreenPrimary else Color.Transparent,
+                            RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp)
+                        )
+                        .border(1.dp, if (isRandom) GreenPrimary else GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
+                        .clickable { isRandom = true }
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Random", color = if (isRandom) BrownDark else GreenPrimary.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Text("Cycle every:", color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
             Slider(
@@ -311,62 +376,124 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
                 Text("No cycling messages yet.\nAdd one above!\n\nUse {cycling} in your\ntemplate to place them.", color = GreenPrimary.copy(alpha = 0.5f), fontSize = 12.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center)
             }
         } else {
-            // Item heights for drag calculation
-            val itemHeightPx = remember { mutableStateOf(80f) }
-
-            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(cyclingMessages, key = { _, msg -> msg + cyclingMessages.indexOf(msg) }) { index, message ->
+            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                itemsIndexed(cyclingMessages, key = { idx, _ -> idx }) { index, message ->
                     val isDragging = dragFromIndex == index
-                    val isTarget = dragToIndex == index && dragFromIndex != index
+                    var totalDragY by remember { mutableStateOf(0f) }
+                    var isEditing by remember { mutableStateOf(false) }
+                    var editText by remember(message) { mutableStateOf(message) }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onGloballyPositioned { itemHeightPx.value = it.size.height.toFloat() + 6f }
-                    ) {
-                        CyclingMessageRow(
-                            message = message,
-                            index = index,
-                            isDragging = isDragging,
-                            isTarget = isTarget,
-                            onDelete = {
-                                val newList = cyclingMessages.toMutableList()
-                                if (index < newList.size) {
-                                    newList.removeAt(index)
-                                    onMessagesChange(newList)
+                    // Show gap line ABOVE this item when dragToIndex == index and dragging upward,
+                    // or gap line BELOW the last item
+                    val showGapAbove = dragFromIndex >= 0 && !isDragging && dragToIndex == index && dragFromIndex > index
+                    val showGapBelow = dragFromIndex >= 0 && !isDragging && dragToIndex == index && dragFromIndex < index
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Gap line above
+                        if (showGapAbove) {
+                            Box(modifier = Modifier.fillMaxWidth().height(3.dp).padding(horizontal = 4.dp).background(GreenPrimary, RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.height(4.dp))
+                        } else {
+                            Spacer(Modifier.height(3.dp))
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { itemHeightPx.value = it.size.height.toFloat() + 6f }
+                                .border(
+                                    1.dp,
+                                    when { isEditing -> GreenPrimary; isDragging -> GreenPrimary.copy(alpha = 0.4f); else -> GreenPrimary.copy(alpha = 0.3f) },
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .background(
+                                    when { isEditing -> GreenPrimary.copy(alpha = 0.1f); isDragging -> GreenPrimary.copy(alpha = 0.05f); else -> Color.Transparent },
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .then(
+                                    if (!isEditing) Modifier.pointerInput(index) {
+                                        androidx.compose.foundation.gestures.detectDragGestures(
+                                            onDragStart = { totalDragY = 0f; dragFromIndex = index; dragToIndex = index },
+                                            onDrag = { _, dragAmount ->
+                                                totalDragY += dragAmount.y
+                                                val steps = (totalDragY / itemHeightPx.value).toInt()
+                                                dragToIndex = (dragFromIndex + steps).coerceIn(0, cyclingMessages.size - 1)
+                                            },
+                                            onDragEnd = {
+                                                if (dragFromIndex >= 0 && dragToIndex >= 0 && dragFromIndex != dragToIndex) {
+                                                    val l = cyclingMessages.toMutableList()
+                                                    val item = l.removeAt(dragFromIndex)
+                                                    l.add(dragToIndex.coerceIn(0, l.size), item)
+                                                    onMessagesChange(l)
+                                                }
+                                                dragFromIndex = -1; dragToIndex = -1
+                                            },
+                                            onDragCancel = { dragFromIndex = -1; dragToIndex = -1 }
+                                        )
+                                    } else Modifier
+                                )
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("${index+1}.", color = GreenPrimary.copy(alpha = 0.5f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(20.dp))
+
+                            if (isEditing) {
+                                BasicTextField(
+                                    value = editText,
+                                    onValueChange = { editText = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                                    cursorBrush = SolidColor(GreenPrimary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = {
+                                        if (editText.isNotBlank()) {
+                                            val l = cyclingMessages.toMutableList()
+                                            l[index] = editText.trim()
+                                            onMessagesChange(l)
+                                        }
+                                        isEditing = false
+                                    }),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = {
+                                    if (editText.isNotBlank()) {
+                                        val l = cyclingMessages.toMutableList()
+                                        l[index] = editText.trim()
+                                        onMessagesChange(l)
+                                    }
+                                    isEditing = false
+                                }, modifier = Modifier.size(28.dp)) {
+                                    Icon(Icons.Default.Check, contentDescription = "Save", tint = GreenPrimary)
                                 }
-                            },
-                            onMoveUp = {
-                                if (index > 0) {
-                                    val l = cyclingMessages.toMutableList()
-                                    val t = l[index]; l[index] = l[index-1]; l[index-1] = t
-                                    onMessagesChange(l)
-                                }
-                            },
-                            onMoveDown = {
-                                if (index < cyclingMessages.size - 1) {
-                                    val l = cyclingMessages.toMutableList()
-                                    val t = l[index]; l[index] = l[index+1]; l[index+1] = t
-                                    onMessagesChange(l)
-                                }
-                            },
-                            onDragStart = { dragFromIndex = index; dragToIndex = index },
-                            onDrag = { deltaY ->
-                                val steps = (deltaY / itemHeightPx.value).toInt()
-                                val newTarget = (dragFromIndex + steps).coerceIn(0, cyclingMessages.size - 1)
-                                dragToIndex = newTarget
-                            },
-                            onDragEnd = {
-                                if (dragFromIndex >= 0 && dragToIndex >= 0 && dragFromIndex != dragToIndex) {
-                                    val l = cyclingMessages.toMutableList()
-                                    val item = l.removeAt(dragFromIndex)
-                                    l.add(dragToIndex.coerceIn(0, l.size), item)
-                                    onMessagesChange(l)
-                                }
-                                dragFromIndex = -1
-                                dragToIndex = -1
+                            } else {
+                                Text(
+                                    message,
+                                    color = if (isDragging) GreenPrimary.copy(alpha = 0.4f) else GreenPrimary,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.weight(1f).clickable { isEditing = true; editText = message }
+                                )
+                                IconButton(onClick = {
+                                    if (index > 0) { val l = cyclingMessages.toMutableList(); val t = l[index]; l[index] = l[index-1]; l[index-1] = t; onMessagesChange(l) }
+                                }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Up", tint = GreenPrimary.copy(alpha = 0.7f)) }
+                                IconButton(onClick = {
+                                    if (index < cyclingMessages.size - 1) { val l = cyclingMessages.toMutableList(); val t = l[index]; l[index] = l[index+1]; l[index+1] = t; onMessagesChange(l) }
+                                }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Down", tint = GreenPrimary.copy(alpha = 0.7f)) }
+                                IconButton(onClick = {
+                                    val newList = cyclingMessages.toMutableList()
+                                    if (index < newList.size) { newList.removeAt(index); onMessagesChange(newList) }
+                                }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, contentDescription = "Delete", tint = GreenPrimary.copy(alpha = 0.7f)) }
                             }
-                        )
+                        }
+
+                        // Gap line below (only show on last item when dragging to end)
+                        if (showGapBelow) {
+                            Spacer(Modifier.height(4.dp))
+                            Box(modifier = Modifier.fillMaxWidth().height(3.dp).padding(horizontal = 4.dp).background(GreenPrimary, RoundedCornerShape(2.dp)))
+                        } else {
+                            Spacer(Modifier.height(3.dp))
+                        }
                     }
                 }
             }
@@ -374,53 +501,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
     }
 }
 
-@Composable
-fun CyclingMessageRow(
-    message: String, index: Int,
-    isDragging: Boolean = false, isTarget: Boolean = false,
-    onDelete: () -> Unit, onMoveUp: () -> Unit, onMoveDown: () -> Unit,
-    onDragStart: () -> Unit = {}, onDrag: (Float) -> Unit = {}, onDragEnd: () -> Unit = {}
-) {
-    var totalDragY by remember { mutableStateOf(0f) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                1.dp,
-                when { isDragging -> GreenPrimary; isTarget -> GreenPrimary.copy(alpha = 0.8f); else -> GreenPrimary.copy(alpha = 0.3f) },
-                RoundedCornerShape(6.dp)
-            )
-            .background(
-                when { isDragging -> GreenPrimary.copy(alpha = 0.15f); isTarget -> GreenPrimary.copy(alpha = 0.08f); else -> Color.Transparent },
-                RoundedCornerShape(6.dp)
-            )
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        // Drag handle
-        Text(
-            "⠿",
-            color = GreenPrimary.copy(alpha = 0.5f),
-            fontSize = 14.sp,
-            modifier = Modifier
-                .pointerInput(index) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { totalDragY = 0f; onDragStart() },
-                        onDrag = { _, dragAmount -> totalDragY += dragAmount.y; onDrag(totalDragY) },
-                        onDragEnd = { onDragEnd() },
-                        onDragCancel = { onDragEnd() }
-                    )
-                }
-        )
-        Text("${index+1}.", color = GreenPrimary.copy(alpha = 0.5f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(20.dp))
-        Text(message, color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-        IconButton(onClick = onMoveUp, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Up", tint = GreenPrimary.copy(alpha = 0.7f)) }
-        IconButton(onClick = onMoveDown, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Down", tint = GreenPrimary.copy(alpha = 0.7f)) }
-        IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, contentDescription = "Delete", tint = GreenPrimary.copy(alpha = 0.7f)) }
-    }
-}
 
 @Composable
 fun NowPlayingCard(nowPlaying: NowPlaying) {
