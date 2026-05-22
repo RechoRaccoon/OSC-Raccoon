@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.zIndex
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -116,12 +115,15 @@ fun OSCRaccoonApp() {
         }
     }
 
+    var showIconOverlay by remember { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize().drawBehind { drawCheckerboard() }) {
         Column(modifier = Modifier.fillMaxSize()) {
             HeaderBar(
                 isRunning = isRunning,
                 lastFmUsername = lastFmUsername,
                 onSetupClick = { showSetup = true },
+                onIconClick = { showIconOverlay = true },
                 onStartStop = {
                     if (isRunning) {
                         context.stopService(Intent(context, OscForegroundService::class.java))
@@ -179,13 +181,31 @@ fun OSCRaccoonApp() {
                 onDismiss = { if (lastFmUsername.isNotEmpty()) showSetup = false }
             )
         }
+        // Icon overlay — last in Box so it sits on top of everything
+        if (showIconOverlay) {
+            val context2 = LocalContext.current
+            val icon: ImageBitmap? = remember {
+                try { BitmapFactory.decodeStream(context2.assets.open("osc_raccoon_icon.png"))?.asImageBitmap() }
+                catch (e: Exception) {
+                    try { BitmapFactory.decodeStream(context2.assets.open("recho_icon.png"))?.asImageBitmap() }
+                    catch (e2: Exception) { null }
+                }
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).clickable { showIconOverlay = false },
+                contentAlignment = Alignment.Center
+            ) {
+                if (icon != null) {
+                    Image(bitmap = icon, contentDescription = "OSC Raccoon full", modifier = Modifier.fillMaxHeight(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Unit, onStartStop: () -> Unit, onClearChatbox: () -> Unit) {
+fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Unit, onIconClick: () -> Unit, onStartStop: () -> Unit, onClearChatbox: () -> Unit) {
     val context = LocalContext.current
-    var showIconOverlay by remember { mutableStateOf(false) }
     val icon: ImageBitmap? = remember {
         try { BitmapFactory.decodeStream(context.assets.open("osc_raccoon_icon.png"))?.asImageBitmap() }
         catch (e: Exception) {
@@ -193,26 +213,6 @@ fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Un
             catch (e2: Exception) { null }
         }
     }
-
-    // Fullscreen icon overlay
-    if (showIconOverlay && icon != null) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.85f))
-                .clickable { showIconOverlay = false }
-                .zIndex(99f),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                bitmap = icon,
-                contentDescription = "OSC Raccoon full",
-                modifier = Modifier.fillMaxHeight(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit
-            )
-        }
-    }
-
     Row(
         modifier = Modifier.fillMaxWidth().background(BrownMid.copy(alpha = 0.85f)).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -222,7 +222,7 @@ fun HeaderBar(isRunning: Boolean, lastFmUsername: String, onSetupClick: () -> Un
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (icon != null) {
                 Image(bitmap = icon, contentDescription = "OSC Raccoon",
-                    modifier = Modifier.size(36.dp).clickable { showIconOverlay = true })
+                    modifier = Modifier.size(36.dp).clickable { onIconClick() })
             }
             Column {
                 Text("OSCRaccoon by Recho Raccoon", color = GreenPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
