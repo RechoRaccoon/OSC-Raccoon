@@ -38,4 +38,12 @@ object AppPreferences {
 
     fun loadInterval(context: Context): Int =
         prefs(context).getInt(KEY_INTERVAL, 5)
+
+    fun saveHiddenMessages(context: Context, hidden: Set<Int>) =
+        prefs(context).edit().putString("hidden_messages", hidden.joinToString(",")).apply()
+
+    fun loadHiddenMessages(context: Context): Set<Int> {
+        val raw = prefs(context).getString("hidden_messages", "") ?: ""
+        return if (raw.isEmpty()) emptySet() else raw.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+    }
 }

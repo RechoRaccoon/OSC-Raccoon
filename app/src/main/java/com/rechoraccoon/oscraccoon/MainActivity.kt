@@ -85,30 +85,47 @@ fun OSCRaccoonApp() {
         mutableStateOf(if (saved.isEmpty()) DEFAULT_CYCLING else saved)
     }
     var cycleInterval by remember { mutableStateOf(AppPreferences.loadInterval(context)) }
+    var hiddenMessages by remember { mutableStateOf(AppPreferences.loadHiddenMessages(context)) }
     var isRunning by remember { mutableStateOf(false) }
     var showSetup by remember { mutableStateOf(lastFmUsername.isEmpty()) }
     var nowPlaying by remember { mutableStateOf(NowPlaying()) }
     var previewCycleIndex by remember { mutableStateOf(0) }
+    var isRandom by remember { mutableStateOf(false) }
+    val random = remember { java.util.Random() }
+
+    // Visible messages for cycling (excludes hidden ones)
+    val visibleMessages = remember(cyclingMessages, hiddenMessages) {
+        cyclingMessages.filterIndexed { i, _ -> !hiddenMessages.contains(i) }
+    }
 
     LaunchedEffect(Unit) { LastFmService.nowPlaying.collectLatest { nowPlaying = it } }
 
-    LaunchedEffect(cyclingMessages, cycleInterval) {
+    LaunchedEffect(visibleMessages, cycleInterval, isRandom) {
         while (true) {
             delay(cycleInterval * 1000L)
-            if (cyclingMessages.isNotEmpty())
-                previewCycleIndex = (previewCycleIndex + 1) % cyclingMessages.size
+            if (visibleMessages.isNotEmpty()) {
+                previewCycleIndex = if (isRandom) {
+                    if (visibleMessages.size > 1) {
+                        var next: Int
+                        do { next = random.nextInt(visibleMessages.size) } while (next == previewCycleIndex)
+                        next
+                    } else 0
+                } else {
+                    (previewCycleIndex + 1) % visibleMessages.size
+                }
+            }
         }
     }
 
-    val currentCycling = if (cyclingMessages.isNotEmpty()) cyclingMessages[previewCycleIndex.coerceIn(0, (cyclingMessages.size - 1).coerceAtLeast(0))] else ""
+    val currentCycling = if (visibleMessages.isNotEmpty()) visibleMessages[previewCycleIndex.coerceIn(0, (visibleMessages.size - 1).coerceAtLeast(0))] else ""
     val livePreview = OscForegroundService.formatTemplate(messageTemplate, nowPlaying, currentCycling)
 
-    LaunchedEffect(messageTemplate, cyclingMessages, cycleInterval) {
+    LaunchedEffect(messageTemplate, visibleMessages, cycleInterval) {
         if (isRunning) {
             val svc = Intent(context, OscForegroundService::class.java).apply {
                 action = OscForegroundService.ACTION_UPDATE
                 putExtra(OscForegroundService.EXTRA_MAIN_TEMPLATE, messageTemplate)
-                putStringArrayListExtra(OscForegroundService.EXTRA_CYCLING_MESSAGES, ArrayList(cyclingMessages))
+                putStringArrayListExtra(OscForegroundService.EXTRA_CYCLING_MESSAGES, ArrayList(visibleMessages))
                 putExtra(OscForegroundService.EXTRA_CYCLE_INTERVAL, cycleInterval)
             }
             context.startForegroundService(svc)
@@ -132,7 +149,7 @@ fun OSCRaccoonApp() {
                         val svc = Intent(context, OscForegroundService::class.java).apply {
                             action = OscForegroundService.ACTION_START
                             putExtra(OscForegroundService.EXTRA_MAIN_TEMPLATE, messageTemplate)
-                            putStringArrayListExtra(OscForegroundService.EXTRA_CYCLING_MESSAGES, ArrayList(cyclingMessages))
+                            putStringArrayListExtra(OscForegroundService.EXTRA_CYCLING_MESSAGES, ArrayList(visibleMessages))
                             putExtra(OscForegroundService.EXTRA_CYCLE_INTERVAL, cycleInterval)
                         }
                         context.startForegroundService(svc)
@@ -156,7 +173,11 @@ fun OSCRaccoonApp() {
                 RightPanel(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     cyclingMessages = cyclingMessages,
+                    hiddenMessages = hiddenMessages,
                     cycleInterval = cycleInterval,
+                    isRandom = isRandom,
+                    onRandomChange = { isRandom = it; OscForegroundService.randomCycling = it },
+                    onHiddenChange = { hiddenMessages = it; AppPreferences.saveHiddenMessages(context, it) },
                     onMessagesChange = {
                         // Clamp preview index before updating to prevent crashes
                         val newList = it
@@ -252,14 +273,14 @@ fun LastFmSetupDialog(currentUsername: String, onConfirm: (String) -> Unit, onDi
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Connect Last.fm", color = GreenPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 HorizontalDivider(color = GreenPrimary.copy(alpha = 0.3f))
-                Text("Last.fm tracks your music automatically from Spotify, YouTube Music, and more — for free.", color = GreenPrimary.copy(alpha = 0.85f), fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp)
+                Text("Last.fm tracks your music automatically from Spotify, YouTube Music, and more — for free.", color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp)
                 SetupStep("1", "Create a free account at last.fm/join")
                 RaccoonButton(text = "Open last.fm/join", small = true, onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.last.fm/join"))) })
                 SetupStep("2", "Connect Spotify (or any music app) at last.fm/settings/applications")
                 RaccoonButton(text = "Open Last.fm Settings", small = true, onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.last.fm/settings/applications"))) })
                 SetupStep("3", "Enter your Last.fm username below:")
                 RaccoonTextField(value = username, onValueChange = { username = it }, placeholder = "Your Last.fm username", modifier = Modifier.fillMaxWidth())
-                Text("That's it! OSC Raccoon will automatically show whatever you're listening to.", color = GreenPrimary.copy(alpha = 0.6f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 16.sp)
+                Text("That's it! OSC Raccoon will automatically show whatever you're listening to.", color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 16.sp)
 
                 HorizontalDivider(color = GreenPrimary.copy(alpha = 0.3f))
 
@@ -281,14 +302,17 @@ fun LastFmSetupDialog(currentUsername: String, onConfirm: (String) -> Unit, onDi
 fun SetupStep(number: String, text: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("$number.", color = GreenPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-        Text(text, color = GreenPrimary.copy(alpha = 0.85f), fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp)
+        Text(text, color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp)
     }
 }
 
 @Composable
 fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (String) -> Unit, nowPlaying: NowPlaying, livePreview: String, lastFmUsername: String) {
     PanelCard(modifier = modifier, title = "Message Template") {
-        Text("Placeholders:  {song}  {artist}  {cycling}  {time}", color = GreenPrimary.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 8.dp))
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Placeholders:  {song}  {artist}  {cycling}  {time}", color = GreenPrimary.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            RaccoonButton(text = "↵ New Line", small = true, onClick = { onTemplateChange(messageTemplate + "\n") })
+        }
         RaccoonTextArea(value = messageTemplate, onValueChange = onTemplateChange, label = "Message template", modifier = Modifier.fillMaxWidth().height(100.dp))
         Spacer(Modifier.height(12.dp))
         SectionLabel("Now Playing" + if (lastFmUsername.isNotEmpty()) " (via Last.fm)" else "")
@@ -302,14 +326,10 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
 }
 
 @Composable
-fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval: Int, onMessagesChange: (List<String>) -> Unit, onIntervalChange: (Int) -> Unit) {
+fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages: Set<Int>, cycleInterval: Int, isRandom: Boolean, onRandomChange: (Boolean) -> Unit, onHiddenChange: (Set<Int>) -> Unit, onMessagesChange: (List<String>) -> Unit, onIntervalChange: (Int) -> Unit) {
     var newMessage by remember { mutableStateOf("") }
     var dragFromIndex by remember { mutableStateOf(-1) }
     var dragToIndex by remember { mutableStateOf(-1) }
-    var isRandom by remember { mutableStateOf(false) }
-
-    // Expose random mode to OscForegroundService via a simple companion flag
-    LaunchedEffect(isRandom) { OscForegroundService.randomCycling = isRandom }
 
     val itemHeightPx = remember { mutableStateOf(80f) }
 
@@ -329,7 +349,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
                             RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp)
                         )
                         .border(1.dp, if (!isRandom) GreenPrimary else GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp))
-                        .clickable { isRandom = false }
+                        .clickable { onRandomChange(false) }
                         .padding(horizontal = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -344,7 +364,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
                             RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp)
                         )
                         .border(1.dp, if (isRandom) GreenPrimary else GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
-                        .clickable { isRandom = true }
+                        .clickable { onRandomChange(true) }
                         .padding(horizontal = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -412,20 +432,28 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
                                 .then(
                                     if (!isEditing) Modifier.pointerInput(index) {
                                         detectDragGestures(
-                                            onDragStart = { _: Offset -> totalDragY = 0f; dragFromIndex = index; dragToIndex = index },
+                                            onDragStart = { _: Offset ->
+                                                totalDragY = 0f
+                                                dragFromIndex = index
+                                                dragToIndex = index
+                                            },
                                             onDrag = { _: androidx.compose.ui.input.pointer.PointerInputChange, dragAmount: Offset ->
                                                 totalDragY += dragAmount.y
                                                 val steps = (totalDragY / itemHeightPx.value).toInt()
+                                                // Use the captured dragFromIndex, not index (which may have shifted)
                                                 dragToIndex = (dragFromIndex + steps).coerceIn(0, cyclingMessages.size - 1)
                                             },
                                             onDragEnd = {
-                                                if (dragFromIndex >= 0 && dragToIndex >= 0 && dragFromIndex != dragToIndex) {
+                                                val from = dragFromIndex
+                                                val to = dragToIndex
+                                                dragFromIndex = -1
+                                                dragToIndex = -1
+                                                if (from >= 0 && to >= 0 && from != to && from < cyclingMessages.size && to < cyclingMessages.size) {
                                                     val l = cyclingMessages.toMutableList()
-                                                    val item = l.removeAt(dragFromIndex)
-                                                    l.add(dragToIndex.coerceIn(0, l.size), item)
+                                                    val item = l.removeAt(from)
+                                                    l.add(to.coerceIn(0, l.size), item)
                                                     onMessagesChange(l)
                                                 }
-                                                dragFromIndex = -1; dragToIndex = -1
                                             },
                                             onDragCancel = { dragFromIndex = -1; dragToIndex = -1 }
                                         )
@@ -466,13 +494,26 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, cycleInterval:
                                     Icon(Icons.Default.Check, contentDescription = "Save", tint = GreenPrimary)
                                 }
                             } else {
+                                val isHidden = hiddenMessages.contains(index)
                                 Text(
                                     message,
-                                    color = if (isDragging) GreenPrimary.copy(alpha = 0.4f) else GreenPrimary,
+                                    color = if (isDragging || isHidden) GreenPrimary.copy(alpha = 0.35f) else GreenPrimary,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.weight(1f).clickable { isEditing = true; editText = message }
                                 )
+                                // Hide/show toggle button
+                                IconButton(onClick = {
+                                    val newHidden = hiddenMessages.toMutableSet()
+                                    if (isHidden) newHidden.remove(index) else newHidden.add(index)
+                                    onHiddenChange(newHidden)
+                                }, modifier = Modifier.size(28.dp)) {
+                                    Icon(
+                                        if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (isHidden) "Show" else "Hide",
+                                        tint = if (isHidden) GreenPrimary.copy(alpha = 0.35f) else GreenPrimary.copy(alpha = 0.7f)
+                                    )
+                                }
                                 IconButton(onClick = {
                                     if (index > 0) { val l = cyclingMessages.toMutableList(); val t = l[index]; l[index] = l[index-1]; l[index-1] = t; onMessagesChange(l) }
                                 }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Up", tint = GreenPrimary.copy(alpha = 0.7f)) }
