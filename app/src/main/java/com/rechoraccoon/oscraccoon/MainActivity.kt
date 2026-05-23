@@ -306,25 +306,40 @@ fun SetupStep(number: String, text: String) {
 
 @Composable
 fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (String) -> Unit, nowPlaying: NowPlaying, livePreview: String, lastFmUsername: String) {
-    // Use TextFieldValue so we can track cursor position for the new line button
-    var fieldValue by remember(messageTemplate) { mutableStateOf(TextFieldValue(messageTemplate)) }
+    // Initialize once only — don't use remember(messageTemplate) which resets cursor on every change
+    var fieldValue by remember { mutableStateOf(TextFieldValue(messageTemplate)) }
+
+    // Helper to insert text at current cursor position
+    fun insertAtCursor(insert: String) {
+        val cursor = fieldValue.selection.end.coerceIn(0, fieldValue.text.length)
+        val before = fieldValue.text.substring(0, cursor)
+        val after = fieldValue.text.substring(cursor)
+        val newText = "$before$insert$after"
+        val newCursor = cursor + insert.length
+        fieldValue = TextFieldValue(text = newText, selection = androidx.compose.ui.text.TextRange(newCursor))
+        onTemplateChange(newText)
+    }
 
     PanelCard(modifier = modifier, title = "Message Template") {
+        // Placeholder row — each code is clickable and inserts at cursor
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Placeholders:  {song}  {artist}  {cycling}  {time}", color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Tap to insert:", color = GreenPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                listOf("{song}", "{artist}", "{cycling}", "{time}").forEach { placeholder ->
+                    Box(
+                        modifier = Modifier
+                            .border(1.dp, GreenPrimary.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                            .clickable { insertAtCursor(placeholder) }
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(placeholder, color = GreenPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
             Box(
                 modifier = Modifier
                     .border(1.dp, GreenPrimary, RoundedCornerShape(4.dp))
-                    .clickable {
-                        // Insert newline at cursor position
-                        val cursor = fieldValue.selection.end.coerceIn(0, fieldValue.text.length)
-                        val before = fieldValue.text.substring(0, cursor)
-                        val after = fieldValue.text.substring(cursor)
-                        val newText = "$before\n$after"
-                        val newCursor = cursor + 1
-                        fieldValue = TextFieldValue(text = newText, selection = androidx.compose.ui.text.TextRange(newCursor))
-                        onTemplateChange(newText)
-                    }
+                    .clickable { insertAtCursor("\n") }
                     .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -333,7 +348,11 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
         }
         RaccoonTextAreaValue(
             value = fieldValue,
-            onValueChange = { fieldValue = it; onTemplateChange(it.text) },
+            onValueChange = {
+                // Update fieldValue directly — preserves selection/cursor
+                fieldValue = it
+                onTemplateChange(it.text)
+            },
             label = "Message template",
             modifier = Modifier.fillMaxWidth().height(100.dp)
         )
