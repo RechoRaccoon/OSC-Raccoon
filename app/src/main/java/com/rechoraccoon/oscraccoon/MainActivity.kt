@@ -310,8 +310,16 @@ fun SetupStep(number: String, text: String) {
 fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (String) -> Unit, nowPlaying: NowPlaying, livePreview: String, lastFmUsername: String) {
     PanelCard(modifier = modifier, title = "Message Template") {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Placeholders:  {song}  {artist}  {cycling}  {time}", color = GreenPrimary.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-            RaccoonButton(text = "↵ New Line", small = true, onClick = { onTemplateChange(messageTemplate + "\n") })
+            Text("Placeholders:  {song}  {artist}  {cycling}  {time}", color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            Box(
+                modifier = Modifier
+                    .border(1.dp, GreenPrimary, RoundedCornerShape(4.dp))
+                    .clickable { onTemplateChange(messageTemplate + "\n") }
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("↵ New Line", color = GreenPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            }
         }
         RaccoonTextArea(value = messageTemplate, onValueChange = onTemplateChange, label = "Message template", modifier = Modifier.fillMaxWidth().height(100.dp))
         Spacer(Modifier.height(12.dp))
@@ -319,7 +327,7 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
         NowPlayingCard(nowPlaying)
         Spacer(Modifier.height(12.dp))
         SectionLabel("Live Chatbox Preview")
-        Box(modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(6.dp)).padding(10.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(10.dp)) {
             Text(livePreview.ifEmpty { "(empty)" }, color = GreenPrimary, fontSize = 13.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp)
         }
     }
@@ -334,7 +342,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
     val itemHeightPx = remember { mutableStateOf(80f) }
 
     // Panel title row with Order/Random toggles on the right
-    Column(modifier = modifier.background(BrownMid.copy(alpha = 0.7f), RoundedCornerShape(10.dp)).border(1.dp, GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp)).padding(12.dp)) {
+    Column(modifier = modifier.background(BrownMid.copy(alpha = 0.7f), RoundedCornerShape(10.dp)).border(1.dp, GreenPrimary, RoundedCornerShape(10.dp)).padding(12.dp)) {
         // Title row
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Cycling Messages {cycling}", color = GreenPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
@@ -398,17 +406,15 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 itemsIndexed(cyclingMessages, key = { idx, _ -> idx }) { index, message ->
                     val isDragging = dragFromIndex == index
+                    val isHidden = hiddenMessages.contains(index)
                     var totalDragY by remember { mutableStateOf(0f) }
                     var isEditing by remember { mutableStateOf(false) }
                     var editText by remember(message) { mutableStateOf(message) }
 
-                    // Show gap line ABOVE this item when dragToIndex == index and dragging upward,
-                    // or gap line BELOW the last item
                     val showGapAbove = dragFromIndex >= 0 && !isDragging && dragToIndex == index && dragFromIndex > index
                     val showGapBelow = dragFromIndex >= 0 && !isDragging && dragToIndex == index && dragFromIndex < index
 
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Gap line above
                         if (showGapAbove) {
                             Box(modifier = Modifier.fillMaxWidth().height(3.dp).padding(horizontal = 4.dp).background(GreenPrimary, RoundedCornerShape(2.dp)))
                             Spacer(Modifier.height(4.dp))
@@ -422,7 +428,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
                                 .onGloballyPositioned { itemHeightPx.value = it.size.height.toFloat() + 6f }
                                 .border(
                                     1.dp,
-                                    when { isEditing -> GreenPrimary; isDragging -> GreenPrimary.copy(alpha = 0.4f); else -> GreenPrimary.copy(alpha = 0.3f) },
+                                    when { isHidden -> GreenPrimary.copy(alpha = 0.25f); else -> GreenPrimary },
                                     RoundedCornerShape(6.dp)
                                 )
                                 .background(
@@ -439,19 +445,33 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
                                             },
                                             onDrag = { _: androidx.compose.ui.input.pointer.PointerInputChange, dragAmount: Offset ->
                                                 totalDragY += dragAmount.y
+                                                // Clamp to valid range using original list size snapshot
+                                                val maxIdx = cyclingMessages.size - 1
                                                 val steps = (totalDragY / itemHeightPx.value).toInt()
-                                                // Use the captured dragFromIndex, not index (which may have shifted)
-                                                dragToIndex = (dragFromIndex + steps).coerceIn(0, cyclingMessages.size - 1)
+                                                dragToIndex = (dragFromIndex + steps).coerceIn(0, maxIdx)
                                             },
                                             onDragEnd = {
                                                 val from = dragFromIndex
                                                 val to = dragToIndex
+                                                // Reset BEFORE mutating list to prevent recompose race
                                                 dragFromIndex = -1
                                                 dragToIndex = -1
-                                                if (from >= 0 && to >= 0 && from != to && from < cyclingMessages.size && to < cyclingMessages.size) {
+                                                if (from >= 0 && to >= 0 && from != to
+                                                    && from < cyclingMessages.size
+                                                    && to < cyclingMessages.size) {
                                                     val l = cyclingMessages.toMutableList()
                                                     val item = l.removeAt(from)
                                                     l.add(to.coerceIn(0, l.size), item)
+                                                    // Remap hidden indices after move
+                                                    val newHidden = hiddenMessages.mapNotNull { h ->
+                                                        when {
+                                                            h == from -> to
+                                                            from < to && h in (from+1)..to -> h - 1
+                                                            from > to && h in to until from -> h + 1
+                                                            else -> h
+                                                        }
+                                                    }.toSet()
+                                                    onHiddenChange(newHidden)
                                                     onMessagesChange(l)
                                                 }
                                             },
@@ -463,7 +483,7 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("${index+1}.", color = GreenPrimary.copy(alpha = 0.5f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(20.dp))
+                            Text("${index+1}.", color = if (isHidden) GreenPrimary.copy(alpha = 0.25f) else GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(20.dp))
 
                             if (isEditing) {
                                 BasicTextField(
@@ -545,20 +565,20 @@ fun RightPanel(modifier: Modifier, cyclingMessages: List<String>, hiddenMessages
 
 @Composable
 fun NowPlayingCard(nowPlaying: NowPlaying) {
-    Box(modifier = Modifier.fillMaxWidth().border(1.dp, GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(6.dp)).padding(10.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(10.dp)) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (nowPlaying.isPlaying) Text("▶", color = GreenPrimary, fontSize = 10.sp)
                 Text(if (nowPlaying.title.isNotEmpty()) nowPlaying.title else "Nothing Playing", color = GreenPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
             }
-            if (nowPlaying.artist.isNotEmpty()) Text(nowPlaying.artist, color = GreenPrimary.copy(alpha = 0.8f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            if (nowPlaying.artist.isNotEmpty()) Text(nowPlaying.artist, color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
     }
 }
 
 @Composable
 fun PanelCard(modifier: Modifier, title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier = modifier.background(BrownMid.copy(alpha = 0.7f), RoundedCornerShape(10.dp)).border(1.dp, GreenPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp)).padding(12.dp)) {
+    Column(modifier = modifier.background(BrownMid.copy(alpha = 0.7f), RoundedCornerShape(10.dp)).border(1.dp, GreenPrimary, RoundedCornerShape(10.dp)).padding(12.dp)) {
         Text(title, color = GreenPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 10.dp))
         content()
     }
@@ -566,7 +586,7 @@ fun PanelCard(modifier: Modifier, title: String, content: @Composable ColumnScop
 
 @Composable
 fun SectionLabel(text: String) {
-    Text(text, color = GreenPrimary.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 4.dp))
+    Text(text, color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 4.dp))
 }
 
 @Composable
@@ -587,8 +607,8 @@ fun RaccoonTextField(value: String, onValueChange: (String) -> Unit, placeholder
         value = value, onValueChange = onValueChange, singleLine = true,
         textStyle = TextStyle(color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace),
         cursorBrush = SolidColor(GreenPrimary),
-        modifier = modifier.border(1.dp, GreenPrimary.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
-        decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = GreenPrimary.copy(alpha = 0.35f), fontSize = 12.sp, fontFamily = FontFamily.Monospace); inner() }
+        modifier = modifier.border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+        decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = GreenPrimary.copy(alpha = 0.4f), fontSize = 12.sp, fontFamily = FontFamily.Monospace); inner() }
     )
 }
 
@@ -598,7 +618,6 @@ fun RaccoonTextArea(value: String, onValueChange: (String) -> Unit, label: Strin
         value = value, onValueChange = onValueChange,
         textStyle = TextStyle(color = GreenPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace, lineHeight = 18.sp),
         cursorBrush = SolidColor(GreenPrimary),
-        // Tell the Quest keyboard this is a multiline field so Enter = newline not Done
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Default
@@ -606,7 +625,7 @@ fun RaccoonTextArea(value: String, onValueChange: (String) -> Unit, label: Strin
         keyboardActions = KeyboardActions(
             onAny = { onValueChange(value + "\n") }
         ),
-        modifier = modifier.border(1.dp, GreenPrimary.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(10.dp),
-        decorationBox = { inner -> if (value.isEmpty()) Text(label, color = GreenPrimary.copy(alpha = 0.35f), fontSize = 12.sp, fontFamily = FontFamily.Monospace); inner() }
+        modifier = modifier.border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(10.dp),
+        decorationBox = { inner -> if (value.isEmpty()) Text(label, color = GreenPrimary.copy(alpha = 0.4f), fontSize = 12.sp, fontFamily = FontFamily.Monospace); inner() }
     )
 }
