@@ -102,7 +102,7 @@ object LocalMediaState {
         positionMs = ms
     }
 
-    fun setVolume(v: Float) {
+    fun changeVolume(v: Float) {
         volume = v
         mediaPlayer?.setVolume(v, v)
     }
@@ -123,7 +123,7 @@ object LocalMediaState {
         if (index < manualQueue.size) manualQueue.removeAt(index)
     }
 
-    fun setShuffle(enabled: Boolean) {
+    fun toggleShuffle(enabled: Boolean) {
         isShuffle = enabled
         if (enabled) {
             val current = currentTrack

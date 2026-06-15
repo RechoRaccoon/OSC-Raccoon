@@ -461,7 +461,7 @@ fun CompactLocalPlayer(onPickFolder: () -> Unit, onShowTracks: () -> Unit) {
         // Controls + shuffle/loop + volume all on one row
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             // Shuffle
-            IconButton(onClick = { LocalMediaState.setShuffle(!LocalMediaState.isShuffle) }, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = { LocalMediaState.toggleShuffle(!LocalMediaState.isShuffle) }, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.Shuffle, contentDescription = "Shuffle", tint = if (LocalMediaState.isShuffle) GreenPrimary else GreenPrimary.copy(alpha = 0.35f), modifier = Modifier.size(18.dp))
             }
             // Prev
@@ -485,7 +485,7 @@ fun CompactLocalPlayer(onPickFolder: () -> Unit, onShowTracks: () -> Unit) {
         // Volume row
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             Text("Volume", color = GreenPrimary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(40.dp))
-            Slider(value = LocalMediaState.volume, onValueChange = { LocalMediaState.setVolume(it) },
+            Slider(value = LocalMediaState.volume, onValueChange = { LocalMediaState.changeVolume(it) },
                 modifier = Modifier.weight(1f).height(20.dp),
                 colors = SliderDefaults.colors(thumbColor = GreenPrimary, activeTrackColor = GreenPrimary, inactiveTrackColor = GreenPrimary.copy(alpha = 0.3f)))
         }
