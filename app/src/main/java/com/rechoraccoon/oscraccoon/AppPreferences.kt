@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
+const val ALL_TRACKS_ID = "all_tracks_default"
+
 data class CyclingMessage(val text: String, val isHidden: Boolean = false)
 data class Preset(val id: String, val name: String, val template: String, val messages: List<CyclingMessage>)
 data class VirtualPlaylist(
@@ -17,6 +19,7 @@ data class VirtualPlaylist(
     val coverScale: Float = 1f,
     val sortOrder: Int = 0
 )
+data class TrackOverride(val title: String, val artist: String)
 
 object AppPreferences {
     private const val PREFS_NAME = "osc_raccoon_prefs"
@@ -70,18 +73,38 @@ object AppPreferences {
 
     fun saveCurrentPresetId(context: Context, id: String?) =
         prefs(context).edit().putString("current_preset_id", id).apply()
-
     fun loadCurrentPresetId(context: Context): String? =
         prefs(context).getString("current_preset_id", null)
+
+    fun saveAppMode(context: Context, mode: String) =
+        prefs(context).edit().putString("app_mode", mode).apply()
+    fun loadAppMode(context: Context): String =
+        prefs(context).getString("app_mode", "chatbox") ?: "chatbox"
+
+    fun saveTrackOverrides(context: Context, overrides: Map<String, TrackOverride>) =
+        prefs(context).edit().putString("track_overrides", gson.toJson(overrides)).apply()
+
+    fun loadTrackOverrides(context: Context): Map<String, TrackOverride> {
+        val raw = prefs(context).getString("track_overrides", null) ?: return emptyMap()
+        return try {
+            val type = object : TypeToken<Map<String, TrackOverride>>() {}.type
+            gson.fromJson(raw, type) ?: emptyMap()
+        } catch (e: Exception) { emptyMap() }
+    }
 
     fun savePlaylists(context: Context, playlists: List<VirtualPlaylist>) =
         prefs(context).edit().putString("playlists", gson.toJson(playlists)).apply()
 
+    /** Always returns with ALL_TRACKS_ID as the first element. */
     fun loadPlaylists(context: Context): List<VirtualPlaylist> {
-        val raw = prefs(context).getString("playlists", null) ?: return emptyList()
-        return try {
+        val raw = prefs(context).getString("playlists", null)
+        val saved: List<VirtualPlaylist> = if (raw == null) emptyList() else try {
             val type = object : TypeToken<List<VirtualPlaylist>>() {}.type
             gson.fromJson(raw, type) ?: emptyList()
         } catch (e: Exception) { emptyList() }
+
+        val hasAllTracks = saved.any { it.id == ALL_TRACKS_ID }
+        return if (hasAllTracks) saved
+        else listOf(VirtualPlaylist(id = ALL_TRACKS_ID, name = "All Tracks")) + saved
     }
 }

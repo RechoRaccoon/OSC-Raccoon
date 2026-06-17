@@ -9,8 +9,8 @@ data class QueueItem(val track: LocalTrack, val isManual: Boolean = false)
 
 object LocalMediaState {
     var tracks = mutableStateListOf<LocalTrack>()
-    var playQueue = mutableStateListOf<LocalTrack>()   // current playback order
-    var manualQueue = mutableStateListOf<LocalTrack>() // manually added, play next
+    var playQueue = mutableStateListOf<LocalTrack>()
+    var manualQueue = mutableStateListOf<LocalTrack>()
     var currentIndex by mutableStateOf(0)
     var isPlaying by mutableStateOf(false)
     var positionMs by mutableStateOf(0L)
@@ -19,32 +19,32 @@ object LocalMediaState {
     var isShuffle by mutableStateOf(false)
     var isLoop by mutableStateOf(false)
     var folderUri by mutableStateOf("")
-    var currentPlaylistId by mutableStateOf("all")
+    var currentPlaylistId by mutableStateOf(ALL_TRACKS_ID)
 
     private var mediaPlayer: MediaPlayer? = null
     private var appContext: Context? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        if (mediaPlayer == null) {
-            mediaPlayer = MediaPlayer()
-        }
+        if (mediaPlayer == null) mediaPlayer = MediaPlayer()
     }
 
     fun release() {
-        mediaPlayer?.release()
-        mediaPlayer = null
+        mediaPlayer?.release(); mediaPlayer = null
     }
 
     val currentTrack: LocalTrack? get() = playQueue.getOrNull(currentIndex)
 
     fun loadTracks(newTracks: List<LocalTrack>) {
-        tracks.clear()
-        tracks.addAll(newTracks)
-        if (playQueue.isEmpty()) {
-            playQueue.clear()
-            playQueue.addAll(newTracks)
-        }
+        tracks.clear(); tracks.addAll(newTracks)
+        if (playQueue.isEmpty()) { playQueue.clear(); playQueue.addAll(newTracks) }
+    }
+
+    /** Load these tracks as the active queue and start playing immediately. */
+    fun loadAndPlayPlaylist(newTracks: List<LocalTrack>) {
+        if (newTracks.isEmpty()) return
+        playQueue.clear(); playQueue.addAll(newTracks)
+        currentIndex = 0; playTrack(0)
     }
 
     fun playTrack(index: Int) {
@@ -60,25 +60,16 @@ object LocalMediaState {
             mediaPlayer?.start()
             isPlaying = true
             durationMs = mediaPlayer?.duration?.toLong() ?: 0L
-            // Update LastFm display
-            LastFmService.setNowPlaying(NowPlaying(title = track.title, artist = track.artist, isPlaying = true))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+            // nowPlaying is derived from currentTrack in OSCRaccoonApp
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     fun playPause() {
         val mp = mediaPlayer ?: return
-        if (isPlaying) {
-            mp.pause()
-            isPlaying = false
-        } else {
-            if (!mp.isPlaying && currentTrack != null) {
-                playTrack(currentIndex)
-            } else {
-                mp.start()
-                isPlaying = true
-            }
+        if (isPlaying) { mp.pause(); isPlaying = false }
+        else {
+            if (!mp.isPlaying && currentTrack != null) playTrack(currentIndex)
+            else { mp.start(); isPlaying = true }
         }
     }
 
@@ -97,15 +88,9 @@ object LocalMediaState {
         playTrack(prev)
     }
 
-    fun seek(ms: Long) {
-        mediaPlayer?.seekTo(ms.toInt())
-        positionMs = ms
-    }
+    fun seek(ms: Long) { mediaPlayer?.seekTo(ms.toInt()); positionMs = ms }
 
-    fun changeVolume(v: Float) {
-        volume = v
-        mediaPlayer?.setVolume(v, v)
-    }
+    fun changeVolume(v: Float) { volume = v; mediaPlayer?.setVolume(v, v) }
 
     fun updatePosition() {
         val mp = mediaPlayer ?: return
@@ -115,13 +100,8 @@ object LocalMediaState {
         }
     }
 
-    fun addToQueue(track: LocalTrack) {
-        manualQueue.add(track)
-    }
-
-    fun removeFromQueue(index: Int) {
-        if (index < manualQueue.size) manualQueue.removeAt(index)
-    }
+    fun addToQueue(track: LocalTrack) { manualQueue.add(track) }
+    fun removeFromQueue(index: Int) { if (index < manualQueue.size) manualQueue.removeAt(index) }
 
     fun toggleShuffle(enabled: Boolean) {
         isShuffle = enabled
@@ -129,20 +109,22 @@ object LocalMediaState {
             val current = currentTrack
             val shuffled = playQueue.toMutableList()
             shuffled.shuffle()
-            // Put current track first
             current?.let { ct -> shuffled.remove(ct); shuffled.add(0, ct) }
-            playQueue.clear()
-            playQueue.addAll(shuffled)
-            currentIndex = 0
+            playQueue.clear(); playQueue.addAll(shuffled); currentIndex = 0
         }
     }
 
+    /** Update a track's metadata everywhere it appears in state. */
+    fun updateTrackInfo(oldUri: Uri, newTrack: LocalTrack) {
+        val ti = tracks.indexOfFirst { it.uri == oldUri }
+        if (ti >= 0) tracks[ti] = newTrack
+        val qi = playQueue.indexOfFirst { it.uri == oldUri }
+        if (qi >= 0) playQueue[qi] = newTrack
+        val mi = manualQueue.indexOfFirst { it.uri == oldUri }
+        if (mi >= 0) manualQueue[mi] = newTrack
+    }
+
     private fun onTrackComplete() {
-        if (isLoop) {
-            mediaPlayer?.seekTo(0)
-            mediaPlayer?.start()
-        } else {
-            next()
-        }
+        if (isLoop) { mediaPlayer?.seekTo(0); mediaPlayer?.start() } else next()
     }
 }
