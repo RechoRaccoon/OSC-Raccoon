@@ -100,6 +100,7 @@ fun TracksContent(showTrackQueue: Boolean) {
     }
 
     val trackListState = rememberLazyListState()
+    val playlistGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
 
     // Root is Box so ghost overlays z-order properly
@@ -121,7 +122,7 @@ fun TracksContent(showTrackQueue: Boolean) {
                     if (displayedTracks.isNotEmpty()) {
                         Box(modifier = Modifier.height(18.dp)
                             .border(1.dp, GreenPrimary, RoundedCornerShape(4.dp))
-                            .clickable { LocalMediaState.loadAndPlayPlaylist(displayedTracks) }
+                            .clickable { LocalMediaState.loadAndPlayPlaylist(displayedTracks, playlistId = selectedPlaylistId) }
                             .padding(horizontal = 8.dp),
                             contentAlignment = Alignment.Center) {
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -219,7 +220,7 @@ fun TracksContent(showTrackQueue: Boolean) {
                                         trackRowBounds[index] = androidx.compose.ui.geometry.Rect(r.x, r.y, r.x + coords.size.width, r.y + coords.size.height)
                                     }
                                     .then(dragMod)
-                                    .clickable { LocalMediaState.loadAndPlayPlaylist(displayedTracks, index) }
+                                    .clickable { LocalMediaState.loadAndPlayPlaylist(displayedTracks, index, selectedPlaylistId) }
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -291,11 +292,13 @@ fun TracksContent(showTrackQueue: Boolean) {
                             Text("+ New", color = GreenPrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
                     }
 
-                    LazyVerticalGrid(columns = GridCells.Fixed(gridColumns.coerceIn(1, 5)),
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(top = 2.dp, bottom = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(playlists, key = { _, pl -> pl.id }) { _, playlist ->
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        LazyVerticalGrid(columns = GridCells.Fixed(gridColumns.coerceIn(1, 5)),
+                            state = playlistGridState,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            contentPadding = PaddingValues(top = 2.dp, bottom = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            itemsIndexed(playlists, key = { _, pl -> pl.id }) { _, playlist ->
                             val isAllTracks = playlist.id == ALL_TRACKS_ID
                             var isRenaming by remember { mutableStateOf(false) }
                             var renameText by remember(playlist.name) { mutableStateOf(playlist.name) }
@@ -321,7 +324,7 @@ fun TracksContent(showTrackQueue: Boolean) {
                                     cardPos = pos
                                     playlistBounds[playlist.id] = androidx.compose.ui.geometry.Rect(pos.x, pos.y, pos.x + coords.size.width, pos.y + coords.size.height)
                                 }
-                                .then(if (!isAllTracks && !isRenaming) Modifier.pointerInput(playlist.id) {
+                                .then(if (!isRenaming) Modifier.pointerInput(playlist.id) {
                                     detectDragGestures(
                                         onDragStart = { offset -> draggingPlaylistId = playlist.id; playlistDragPosition = cardPos + offset },
                                         onDrag = { _, dragAmount -> playlistDragPosition += dragAmount },
@@ -419,6 +422,8 @@ fun TracksContent(showTrackQueue: Boolean) {
                                 }
                             }
                         }
+                        }
+                        GreenGridScrollbar(gridState = playlistGridState, modifier = Modifier.fillMaxHeight().padding(start = 5.dp, top = 2.dp, bottom = 2.dp))
                     }
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -545,7 +550,65 @@ fun GreenScrollbar(listState: LazyListState, modifier: Modifier = Modifier) {
     }
 }
 
-// ── Playlist Cover View ───────────────────────────────────────────────────────
+// ── Green Pill Scrollbar for Grid (Playlists) ─────────────────────────────────
+@Composable
+fun GreenGridScrollbar(gridState: LazyGridState, modifier: Modifier = Modifier) {
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    val info = gridState.layoutInfo
+    val totalItems = info.totalItemsCount
+    val visibleItems = info.visibleItemsInfo
+    val viewportH = info.viewportSize.height.toFloat().coerceAtLeast(1f)
+    if (totalItems == 0 || visibleItems.isEmpty()) return
+
+    // Estimate rows from columns count present in a single row's item span
+    val columnsInRow = visibleItems.count { it.row == visibleItems.first().row }.coerceAtLeast(1)
+    val totalRows = ((totalItems + columnsInRow - 1) / columnsInRow).coerceAtLeast(1)
+    val avgRowH = visibleItems.groupBy { it.row }.values.firstOrNull()?.maxOfOrNull { it.size.height }?.toFloat() ?: 60f
+    val totalContentH = avgRowH * totalRows
+    val thumbFraction = (viewportH / totalContentH).coerceIn(0.07f, 0.88f)
+
+    if (thumbFraction >= 1f) return
+
+    val scrollableContentH = (totalContentH - viewportH).coerceAtLeast(1f)
+    val currentRow = gridState.firstVisibleItemIndex / columnsInRow
+    val scrollOffset = currentRow * avgRowH + gridState.firstVisibleItemScrollOffset
+    val scrollFraction = (scrollOffset / scrollableContentH).coerceIn(0f, 1f)
+
+    var trackHeightPx by remember { mutableStateOf(viewportH) }
+    val thumbHeightPx = trackHeightPx * thumbFraction
+    val thumbOffsetPx = (trackHeightPx - thumbHeightPx) * scrollFraction
+
+    Box(modifier = modifier.width(14.dp).onGloballyPositioned { trackHeightPx = it.size.height.toFloat().coerceAtLeast(1f) }) {
+        Box(Modifier.fillMaxSize().padding(horizontal = 3.dp).background(GreenPrimary.copy(alpha = 0.15f), RoundedCornerShape(4.dp)))
+        val thumbH = with(density) { thumbHeightPx.toDp() }
+        val thumbOff = with(density) { thumbOffsetPx.toDp() }
+        Box(Modifier.fillMaxWidth().height(thumbH).offset(y = thumbOff)
+            .background(GreenPrimary, RoundedCornerShape(4.dp))
+            .pointerInput(Unit) {
+                detectDragGestures { _, dragAmount ->
+                    val i = gridState.layoutInfo
+                    val vi = i.visibleItemsInfo
+                    if (vi.isEmpty()) return@detectDragGestures
+                    val colsInRow = vi.count { it.row == vi.first().row }.coerceAtLeast(1)
+                    val rows = ((i.totalItemsCount + colsInRow - 1) / colsInRow).coerceAtLeast(1)
+                    val rowH = vi.groupBy { it.row }.values.firstOrNull()?.maxOfOrNull { it.size.height }?.toFloat() ?: 60f
+                    val totH = rowH * rows
+                    val vpH = i.viewportSize.height.toFloat().coerceAtLeast(1f)
+                    val scrollableH = (totH - vpH).coerceAtLeast(1f)
+                    val trkH = trackHeightPx.coerceAtLeast(1f)
+                    val tmbH = trkH * (vpH / totH).coerceIn(0.07f, 0.88f)
+                    val scrollableTrack = (trkH - tmbH).coerceAtLeast(1f)
+                    val ratio = scrollableH / scrollableTrack
+                    coroutineScope.launch { gridState.scrollBy(dragAmount.y * ratio) }
+                }
+            }
+        )
+    }
+}
+
+
 @Composable
 fun PlaylistCoverView(playlist: VirtualPlaylist, modifier: Modifier) {
     val context = LocalContext.current

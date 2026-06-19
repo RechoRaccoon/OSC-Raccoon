@@ -37,9 +37,10 @@ object LocalMediaState {
         if (playQueue.isEmpty()) { playQueue.clear(); playQueue.addAll(newTracks) }
     }
 
-    /** Replace the play queue with newTracks and start playing at startIndex. */
-    fun loadAndPlayPlaylist(newTracks: List<LocalTrack>, startIndex: Int = 0) {
+    /** Replace the play queue with newTracks and start playing at startIndex. Tracks which playlist this came from. */
+    fun loadAndPlayPlaylist(newTracks: List<LocalTrack>, startIndex: Int = 0, playlistId: String = ALL_TRACKS_ID) {
         if (newTracks.isEmpty()) return
+        currentPlaylistId = playlistId
         playQueue.clear(); playQueue.addAll(newTracks)
         playTrack(startIndex.coerceIn(0, newTracks.size - 1))
     }
@@ -63,8 +64,19 @@ object LocalMediaState {
 
     fun playPause() {
         val mp = mediaPlayer ?: return
-        if (isPlaying) { mp.pause(); isPlaying = false }
-        else { mp.start(); isPlaying = true }
+        if (isPlaying) { try { mp.pause() } catch (e: Exception) {}; isPlaying = false }
+        else {
+            // If the player was never prepared for the current track (e.g. first Play
+            // press in Chatbox/Local mode before any track was loaded), prepare it via
+            // playTrack() instead of blindly calling start(), which would silently fail
+            // and look like the same track restarting over and over.
+            try {
+                mp.start(); isPlaying = true
+            } catch (e: Exception) {
+                if (currentTrack != null) playTrack(currentIndex)
+                else if (playQueue.isNotEmpty()) playTrack(0)
+            }
+        }
     }
 
     fun next() {

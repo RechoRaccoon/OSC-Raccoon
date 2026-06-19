@@ -358,7 +358,7 @@ fun SharedHeader(appMode: String, onAppModeChange: (String) -> Unit,
                     Box(modifier = Modifier.height(32.dp).background(if (sourceMode == "LASTFM") GreenPrimary else Color.Transparent, RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp))
                         .border(1.dp, GreenPrimary, RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp))
                         .clickable { onSourceModeChange("LASTFM") }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-                        Text("Last.fm", color = if (sourceMode == "LASTFM") BrownDark else GreenPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Spotify", color = if (sourceMode == "LASTFM") BrownDark else GreenPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                     }
                     Box(modifier = Modifier.height(32.dp).background(if (sourceMode == "LOCAL") GreenPrimary else Color.Transparent, RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
                         .border(1.dp, GreenPrimary, RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
@@ -438,11 +438,21 @@ fun PresetsDropdown(presets: List<Preset>, currentPresetId: String?, position: O
 @Composable
 fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (String) -> Unit,
     nowPlaying: NowPlaying, livePreview: String, lastFmUsername: String, sourceMode: String, onSetupClick: () -> Unit) {
-    var fieldValue by remember(messageTemplate) { mutableStateOf(TextFieldValue(messageTemplate)) }
+    // Only reset fieldValue from external template changes (e.g. preset switch),
+    // not from our own onTemplateChange calls — fixes cursor jumping to start.
+    var fieldValue by remember { mutableStateOf(TextFieldValue(messageTemplate)) }
+    var lastPushedText by remember { mutableStateOf(messageTemplate) }
+    LaunchedEffect(messageTemplate) {
+        if (messageTemplate != lastPushedText) {
+            fieldValue = TextFieldValue(messageTemplate)
+            lastPushedText = messageTemplate
+        }
+    }
     fun insertAtCursor(insert: String) {
         val cursor = fieldValue.selection.end.coerceIn(0, fieldValue.text.length)
         val newText = fieldValue.text.substring(0, cursor) + insert + fieldValue.text.substring(cursor)
         fieldValue = TextFieldValue(text = newText, selection = androidx.compose.ui.text.TextRange(cursor + insert.length))
+        lastPushedText = newText
         onTemplateChange(newText)
     }
     PanelCard(modifier = modifier, title = "Message Template") {
@@ -455,9 +465,9 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
                 }
             }
             Box(modifier = Modifier.border(1.dp, GreenPrimary, RoundedCornerShape(4.dp)).clickable { insertAtCursor("\n") }.padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("↵", color = GreenPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                Text("↵ New Line", color = GreenPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
         }
-        RaccoonTextAreaValue(value = fieldValue, onValueChange = { fieldValue = it; onTemplateChange(it.text) }, label = "Message template", modifier = Modifier.fillMaxWidth().weight(1f))
+        RaccoonTextAreaValue(value = fieldValue, onValueChange = { fieldValue = it; lastPushedText = it.text; onTemplateChange(it.text) }, label = "Message template", modifier = Modifier.fillMaxWidth().weight(1f))
         Spacer(Modifier.height(6.dp))
         SectionLabel("Live Chatbox Preview")
         Box(modifier = Modifier.fillMaxWidth().weight(1f).border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(10.dp)) {
@@ -478,7 +488,7 @@ fun LeftPanel(modifier: Modifier, messageTemplate: String, onTemplateChange: (St
 @Composable
 fun LastFmStatusBar(username: String, onSetupClick: () -> Unit) {
     Box(modifier = Modifier.fillMaxWidth().border(1.dp, GreenPrimary.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).clickable { onSetupClick() }.padding(horizontal = 10.dp, vertical = 6.dp)) {
-        if (username.isEmpty()) Text("Connect Last.fm account →", color = GreenPrimary.copy(alpha = 0.7f), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        if (username.isEmpty()) Text("Create or Connect a Last.fm account to track Spotify", color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
         else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Last.fm: $username", color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             Text("Change →", color = GreenPrimary.copy(alpha = 0.6f), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
@@ -518,12 +528,18 @@ fun CompactLocalPlayer() {
                 Text("%d:%02d".format(dm, ds), color = GreenPrimary.copy(alpha = 0.7f), fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(28.dp))
             }
         } else {
-            RaccoonSlider(value = 0f, onValueChange = {}, modifier = Modifier.fillMaxWidth(), enabled = false)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.width(28.dp))
+                RaccoonSlider(value = 0f, onValueChange = {}, modifier = Modifier.weight(1f), enabled = false)
+                Spacer(modifier = Modifier.width(28.dp))
+            }
         }
-        // Volume
+        // Volume — labels match the duration row's 28dp width on both sides so the
+        // slider track itself lines up exactly with the progress slider above.
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("Vol", color = GreenPrimary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(20.dp))
+            Text("Vol", color = GreenPrimary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(28.dp))
             RaccoonSlider(value = LocalMediaState.volume, onValueChange = { LocalMediaState.changeVolume(it) }, modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.width(28.dp))
         }
     }
 }
@@ -674,13 +690,15 @@ fun LastFmSetupDialog(currentUsername: String, onConfirm: (String) -> Unit, onDi
 
 @Composable
 fun NowPlayingCard(nowPlaying: NowPlaying) {
-    Box(modifier = Modifier.fillMaxWidth().border(1.dp, GreenPrimary, RoundedCornerShape(6.dp)).padding(8.dp)) {
+    val isEmpty = nowPlaying.title.isEmpty()
+    val dim = if (isEmpty) 0.4f else 1f
+    Box(modifier = Modifier.fillMaxWidth().border(1.dp, GreenPrimary.copy(alpha = dim), RoundedCornerShape(6.dp)).padding(8.dp)) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (nowPlaying.isPlaying) Text("▶", color = GreenPrimary, fontSize = 10.sp)
-                Text(if (nowPlaying.title.isNotEmpty()) nowPlaying.title else "Nothing Playing", color = GreenPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                if (nowPlaying.isPlaying) Text("▶", color = GreenPrimary.copy(alpha = dim), fontSize = 10.sp)
+                Text(if (!isEmpty) nowPlaying.title else "Nothing Playing", color = GreenPrimary.copy(alpha = dim), fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
             }
-            if (nowPlaying.artist.isNotEmpty()) Text(nowPlaying.artist, color = GreenPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            if (nowPlaying.artist.isNotEmpty()) Text(nowPlaying.artist, color = GreenPrimary.copy(alpha = dim), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
         }
     }
 }
