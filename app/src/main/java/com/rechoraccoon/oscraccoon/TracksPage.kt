@@ -479,23 +479,32 @@ fun TracksContent(showTrackQueue: Boolean) {
                     var finalUri = track.uri
                     var newFileName = ""
                     try {
+                        // Write the REAL embedded ID3 tags first — this is what actually fixes
+                        // the title/artist, since file managers and MediaMetadataRetriever both
+                        // read these tags, not the filename. A pure rename never touched them,
+                        // which is why the old title/artist kept winning no matter what we did
+                        // with the filename or our in-app override map.
+                        val mime = try { context.contentResolver.getType(track.uri) } catch (e: Exception) { null }
+                        if (mime == "audio/mpeg") {
+                            Id3TagWriter.writeTitleArtist(context, track.uri, newTitle, newArtist)
+                        }
+
+                        // Cosmetic: also rename the file on disk to match.
                         val displayName = context.contentResolver.query(track.uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "track.mp3"
                         val ext = displayName.substringAfterLast('.', "mp3")
                         newFileName = "$newTitle - $newArtist.$ext"
                         DocumentsContract.renameDocument(context.contentResolver, track.uri, newFileName)
-                        // Don't trust the return value here — re-scan the parent folder and
-                        // match by the exact name we just set, which reflects what's truly on
-                        // disk regardless of what (possibly stale/null) uri the provider handed back.
+                        // Don't trust the return value — re-scan the parent folder and match by
+                        // the exact name we just set, which reflects what's truly on disk
+                        // regardless of what (possibly stale/null) uri the provider hands back.
                         val folderUriStr = AppPreferences.loadLocalFolderUri(context)
                         if (folderUriStr.isNotEmpty()) {
                             val found = findDocumentUriByDisplayName(context, Uri.parse(folderUriStr), newFileName)
                             if (found != null) finalUri = found
                         }
                     } catch (e: Exception) { e.printStackTrace() }
-                    // Save the override keyed to the FINAL uri — saving under the old, now
-                    // possibly-stale uri was the original bug: on next launch the rescan finds
-                    // the file under its real current uri, the override lookup misses, and the
-                    // stale ID3 tags win back.
+                    // Keep the override as a fallback for non-mp3 formats where we can't write
+                    // real tags (m4a/flac/wav/ogg use different tagging systems entirely).
                     val overrides = AppPreferences.loadTrackOverrides(context).toMutableMap()
                     if (finalUri.toString() != track.uri.toString()) overrides.remove(track.uri.toString())
                     overrides[finalUri.toString()] = TrackOverride(newTitle, newArtist)
