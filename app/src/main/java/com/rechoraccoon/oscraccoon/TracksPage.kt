@@ -476,9 +476,6 @@ fun TracksContent(showTrackQueue: Boolean) {
         editingTrack?.let { track ->
             EditTrackDialog(track = track,
                 onConfirm = { newTitle, newArtist ->
-                    val overrides = AppPreferences.loadTrackOverrides(context).toMutableMap()
-                    overrides[track.uri.toString()] = TrackOverride(newTitle, newArtist)
-                    AppPreferences.saveTrackOverrides(context, overrides)
                     var finalUri = track.uri
                     try {
                         val displayName = context.contentResolver.query(track.uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "track.mp3"
@@ -486,6 +483,14 @@ fun TracksContent(showTrackQueue: Boolean) {
                         val renamed = DocumentsContract.renameDocument(context.contentResolver, track.uri, "$newTitle - $newArtist.$ext")
                         if (renamed != null) finalUri = renamed
                     } catch (e: Exception) { e.printStackTrace() }
+                    // Save the override keyed to the FINAL uri (renameDocument returns a new
+                    // uri since the document id encodes the filename) — saving under the old
+                    // uri here was the bug: on next launch the rescan finds the file under its
+                    // new uri, the override lookup misses, and the stale ID3 tags win back.
+                    val overrides = AppPreferences.loadTrackOverrides(context).toMutableMap()
+                    if (finalUri.toString() != track.uri.toString()) overrides.remove(track.uri.toString())
+                    overrides[finalUri.toString()] = TrackOverride(newTitle, newArtist)
+                    AppPreferences.saveTrackOverrides(context, overrides)
                     val updatedTrack = track.copy(uri = finalUri, title = newTitle, artist = newArtist)
                     LocalMediaState.updateTrackInfo(track.uri, updatedTrack)
                     if (finalUri != track.uri) {
