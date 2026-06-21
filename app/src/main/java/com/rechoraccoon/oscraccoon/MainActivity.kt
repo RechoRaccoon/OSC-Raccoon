@@ -183,7 +183,10 @@ fun OSCRaccoonApp() {
         currentPresetId?.let { id -> initialPresets.find { it.id == id }?.messages }
         ?: AppPreferences.loadCyclingMessages(context)
     ) }
-    var cycleInterval by remember { mutableStateOf(AppPreferences.loadInterval(context)) }
+    var cycleInterval by remember { mutableStateOf(
+        currentPresetId?.let { id -> initialPresets.find { it.id == id }?.interval }
+        ?: AppPreferences.loadInterval(context)
+    ) }
     var sourceMode by remember { mutableStateOf(AppPreferences.loadSourceMode(context)) }
     var presetButtonBottomCenter by remember { mutableStateOf(Offset.Zero) }
     var isRunning by remember { mutableStateOf(false) }
@@ -256,7 +259,7 @@ fun OSCRaccoonApp() {
                 },
                 onPresetsClick = {
                     if (!showPresetsDropdown && currentPresetId != null) {
-                        val updated = presets.map { p -> if (p.id == currentPresetId) p.copy(template = messageTemplate, messages = cyclingMessages) else p }
+                        val updated = presets.map { p -> if (p.id == currentPresetId) p.copy(template = messageTemplate, messages = cyclingMessages, interval = cycleInterval) else p }
                         presets = updated; AppPreferences.savePresets(context, updated)
                     }
                     showPresetsDropdown = !showPresetsDropdown
@@ -306,16 +309,19 @@ fun OSCRaccoonApp() {
                 presets = presets, currentPresetId = currentPresetId, position = presetButtonBottomCenter,
                 onPresetSelected = { preset ->
                     messageTemplate = preset.template; cyclingMessages = preset.messages; currentPresetId = preset.id
+                    cycleInterval = preset.interval.coerceAtLeast(1)
                     AppPreferences.saveTemplate(context, preset.template); AppPreferences.saveCyclingMessages(context, preset.messages)
+                    AppPreferences.saveInterval(context, cycleInterval)
                     AppPreferences.saveCurrentPresetId(context, preset.id); showPresetsDropdown = false
                 },
                 onPresetCreated = {
                     val newId = UUID.randomUUID().toString()
-                    val np = Preset(newId, "Preset ${presets.size + 1}", "", emptyList())
+                    val np = Preset(newId, "Preset ${presets.size + 1}", "", emptyList(), interval = 1)
                     val updated = presets + np; presets = updated; currentPresetId = newId
-                    messageTemplate = ""; cyclingMessages = emptyList()
+                    messageTemplate = ""; cyclingMessages = emptyList(); cycleInterval = 1
                     AppPreferences.savePresets(context, updated); AppPreferences.saveTemplate(context, "")
-                    AppPreferences.saveCyclingMessages(context, emptyList()); AppPreferences.saveCurrentPresetId(context, newId)
+                    AppPreferences.saveCyclingMessages(context, emptyList()); AppPreferences.saveInterval(context, 1)
+                    AppPreferences.saveCurrentPresetId(context, newId)
                     showPresetsDropdown = false
                 },
                 onPresetRenamed = { id, newName -> val u = presets.map { if (it.id == id) it.copy(name = newName) else it }; presets = u; AppPreferences.savePresets(context, u) },

@@ -8,7 +8,7 @@ import com.google.gson.reflect.TypeToken
 const val ALL_TRACKS_ID = "all_tracks_default"
 
 data class CyclingMessage(val text: String, val isHidden: Boolean = false)
-data class Preset(val id: String, val name: String, val template: String, val messages: List<CyclingMessage>)
+data class Preset(val id: String, val name: String, val template: String, val messages: List<CyclingMessage>, val interval: Int = 1)
 data class VirtualPlaylist(
     val id: String,
     val name: String,
@@ -67,7 +67,11 @@ object AppPreferences {
         val raw = prefs(context).getString("presets", null) ?: return emptyList()
         return try {
             val type = object : TypeToken<List<Preset>>() {}.type
-            gson.fromJson(raw, type) ?: emptyList()
+            val loaded: List<Preset> = gson.fromJson(raw, type) ?: emptyList()
+            // Gson bypasses the constructor on deserialization, so presets saved before the
+            // "interval" field existed come back with interval = 0 instead of the Kotlin
+            // default of 1. Normalize those up to a sane minimum.
+            loaded.map { if (it.interval <= 0) it.copy(interval = 1) else it }
         } catch (e: Exception) { emptyList() }
     }
 
