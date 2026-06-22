@@ -1,3 +1,4 @@
+# Track Panda by Recho Raccoon!
 # Standalone Chatbox tool for Quest VRChat - No PC Required!
 - Display your music, time, custom Messages, and more in your VRChat chatbox VIA OSC!
 - Supports ;ocal files and Spotify!
